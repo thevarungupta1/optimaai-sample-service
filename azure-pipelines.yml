@@ -1,0 +1,62 @@
+# Build, test, and push sample-service image to ACR (immutable tag = commit SHA).
+# Deploy via optimaai-aks-deployments CD pipeline (service: sample-service).
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+pr: none
+
+variables:
+  - group: optima-sample-service-ci
+  - name: nodeVersion
+    value: "20.x"
+  - name: serviceName
+    value: sample-service
+  - name: imageTag
+    value: $(Build.SourceVersion)
+  - name: dockerfilePath
+    value: "$(Build.SourcesDirectory)/Dockerfile"
+  - name: imageRepository
+    value: $(serviceName)
+
+pool:
+  name: $(AGENT_POOL_NAME)
+
+stages:
+  - stage: CI
+    displayName: Test and publish image
+    jobs:
+      - job: build
+        displayName: npm test and Docker push
+        steps:
+          - checkout: self
+            fetchDepth: 0
+
+          - task: NodeTool@0
+            displayName: Install Node.js
+            inputs:
+              versionSpec: $(nodeVersion)
+
+          - script: npm ci
+            displayName: npm ci
+
+          - script: npm test
+            displayName: npm test
+
+          - task: Docker@2
+            displayName: Build and push to ACR
+            inputs:
+              containerRegistry: $(ACR_SERVICE_CONNECTION)
+              repository: $(imageRepository)
+              command: buildAndPush
+              Dockerfile: $(dockerfilePath)
+              tags: |
+                $(imageTag)
+
+          - script: |
+              echo "Image: $(ACR_LOGIN_SERVER)/$(imageRepository):$(imageTag)"
+              echo "Deploy with optimaai-aks-deployments: service=sample-service environment=dev imageTag=$(imageTag)"
+            displayName: Publish deploy metadata
